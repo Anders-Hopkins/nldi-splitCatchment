@@ -225,7 +225,7 @@ class Watershed:
         # #request upstream basin from NLDI using comid of catchment point is in
         #r = requests.get(NHDPLUS_FLOWLINES_QUERY_URL, params=payload)
 
-        print('nhd flowline query:', r.url)
+        #print('nhd flowline query:', r.url)
 
         #print('response', r.text)
         # resp = r.json()
