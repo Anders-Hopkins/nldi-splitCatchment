@@ -18,6 +18,8 @@ from pysheds.grid import Grid
 import requests
 import time
 import json
+import os
+os.environ['OGR_WKT_PRECISION'] = '2'
 
 #arguments
 NLDI_URL = 'https://labs.waterdata.usgs.gov/api/nldi/linked-data/comid/'
@@ -25,7 +27,7 @@ NLDI_GEOSERVER_URL = 'https://labs.waterdata.usgs.gov/geoserver/wmadata/ows'
 NHDPLUS_FLOWLINES_QUERY_URL = 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query'
 OUT_PATH = 'C:/NYBackup/GitHub/nldi-splitCatchment/data/'
 IN_FDR = 'C:/NYBackup/GitHub/nldi-splitCatchment/data/nhdplus/NHDPlusMA/NHDPlus02/NHDPlusFdrFac02b/fdr'
-OUT_FDR = 'C:/NYBackup/GitHub/nldi-splitCatchment/data/catch_fdr.tif'
+OUT_FDR = '/vsimem/fdr.tif'
 
 class Watershed:
     """Define inputs and outputs for the main Watershed class"""
@@ -37,11 +39,19 @@ class Watershed:
 
         self.x = x
         self.y = y
-        self.catchment_identifier = None
+        self.catchmentIdentifier = None
+
+        #geoms
         self.catchmentGeom = None
         self.splitCatchmentGeom = None
         self.upstreamBasinGeom = None
-        self.mergedCatchmentGeom = None
+        self.mergedCatchmentGeom = None    
+
+        #outputs
+        self.catchment = None
+        self.splitCatchment = None
+        self.upstreamBasin = None
+        self.mergedCatchment = None
 
         #input point spatial reference
         self.sourceprj = osr.SpatialReference()
@@ -59,10 +69,18 @@ class Watershed:
         self.transformToWGS = osr.CoordinateTransformation(self.targetprj, self.sourceprj)
 
         #kick off
-        self.transform_click_point()
+        self.run()
+
+    def serialize(self):
+        return {
+            'catchment': self.catchment,
+            'splitCatchment': self.splitCatchment, 
+            'upstreamBasin': self.upstreamBasin,
+            'mergedCatchment': self.mergedCatchment
+        }
 
 ## helper functions
-    def geom_to_geojson(self, geom, name, simplify_tolerance=10, write_output=True):
+    def geom_to_geojson(self, geom, name, simplify_tolerance=10, write_output=False):
         """Return a geojson from an OGR geom object"""
 
         #get area in local units
@@ -103,19 +121,35 @@ class Watershed:
         return geojson_dict
 
 ## main functions
-    def transform_click_point(self):
+    def run(self):
+        self.projectedLng, self.projectedLat = self.transform_click_point(self.x,self.y)
+        self.catchmentIdentifier, self.catchmentGeom = self.get_local_catchment(self.x,self.y)
+        minX, maxX, minY, maxY = self.catchmentGeom.GetEnvelope()
+        self.splitCatchmentGeom = self.split_catchment([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
+        self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
+        self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
+
+        #outputs
+        self.catchment = self.geom_to_geojson(self.catchmentGeom, 'catchment')
+        self.splitCatchment = self.geom_to_geojson(self.splitCatchmentGeom, 'splitCatchment')
+        self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
+        self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
+
+    def transform_click_point(self, x, y):
         """Transform (reproject) assumed WGS84 coordinates to input raster coordinates"""
 
-        print('Input X,Y:', self.x, self.y)
-        self.projectedLng, self.projectedLat, z = self.transformToRaster.TransformPoint(self.x,self.y)      
-        print('Projected X,Y:',self.projectedLng, ',', self.projectedLat)
+        print('Input X,Y:', x, y)
+        projectedLng, projectedLat, z = self.transformToRaster.TransformPoint(x,y)      
+        print('Projected X,Y:',projectedLng, ',', projectedLat)
 
-        self.get_local_catchment_geom()
+        return (projectedLng, projectedLat)
 
-    def get_local_catchment_geom(self):
+    def get_local_catchment(self, x, y):
         """Perform point in polygon query to NLDI geoserver to get local catchment geometry"""
 
-        wkt_point = "POINT(%f %f)" %  (self.x , self.y)
+        print('requesting local catchment...')
+
+        wkt_point = "POINT(%f %f)" %  (x , y)
         cql_filter = "INTERSECTS(the_geom, %s)" % (wkt_point)
 
         payload = {
@@ -136,72 +170,61 @@ class Watershed:
         resp = r.json()
 
         #get catchment id
-        self.catchment_identifier = json.dumps(resp['features'][0]['properties']['featureid'])
+        catchmentIdentifier = json.dumps(resp['features'][0]['properties']['featureid'])
 
         #get main catchment geometry polygon
         gj_geom = json.dumps(resp['features'][0]['geometry'])
-        self.catchmentGeom = ogr.CreateGeometryFromJson(gj_geom)
+        catchmentGeom = ogr.CreateGeometryFromJson(gj_geom)
 
         #transform catchment geometry
-        self.catchmentGeom.Transform(self.transformToRaster)
+        catchmentGeom.Transform(self.transformToRaster)
 
-        self.geom_to_geojson(self.catchmentGeom, 'catchment')
+        return catchmentIdentifier, catchmentGeom
 
-        #get extent of transformed polygon
-        minX, maxX, minY, maxY = self.catchmentGeom.GetEnvelope() # Get bounding box of the shapefile feature
-        bounds = [minX, minY, maxX, maxY]
-
-        print('projected bounds', bounds)
-
-        self.splitCatchmentGeom = self.split_catchment(bounds, self.projectedLng,self.projectedLat)
-
-        #get upstream basin
-        self.upstreamBasinGeom = self.get_upstream_basin()
-
-    def get_upstream_basin(self):
+    def get_upstream_basin(self, catchmentIdentifier):
         """Use local catchment identifier to get upstream basin geometry from NLDI"""
 
         #request upstream basin
         payload = {'f': 'json', 'simplified': 'false'}
         
         #request upstream basin from NLDI using comid of catchment point is in
-        r = requests.get(NLDI_URL + self.catchment_identifier + '/basin', params=payload)
+        r = requests.get(NLDI_URL + catchmentIdentifier + '/basin', params=payload)
 
         #print('upstream basin', r.text)
         resp = r.json()
 
         #convert geojson to ogr geom
         gj_geom = json.dumps(resp['features'][0]['geometry'])
-        self.upstreamBasinGeom = ogr.CreateGeometryFromJson(gj_geom)
-        self.upstreamBasinGeom.Transform(self.transformToRaster)
+        upstreamBasinGeom = ogr.CreateGeometryFromJson(gj_geom)
+        upstreamBasinGeom.Transform(self.transformToRaster)
 
-        self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
+        return upstreamBasinGeom
 
-        self.mergeGeoms()
-
-    def mergeGeoms(self):
+    def mergeGeoms(self, catchment, splitCatchment, upstreamBasin):
         """Attempt at merging geometries"""
 
         #if point is on a flowline we have an upstream basin and need to do some geometry merging
-        if self.query_flowlines():
+        if self.query_flowlines(self.x,self.y):
 
             #create new cloned geom
-            self.mergedCatchmentGeom = self.upstreamBasinGeom.Clone()
+            mergedCatchmentGeom = upstreamBasin.Clone()
 
             #subtract splitCatchment geom from full catchment geom
-            diff = self.catchmentGeom.Difference(self.splitCatchmentGeom.Buffer(10).Buffer(-10))
+            diff = catchment.Difference(splitCatchment.Buffer(10).Buffer(-10))
 
             #subtract splitCatchment geom from upstream basin geometry
-            self.mergedCatchmentGeom = self.mergedCatchmentGeom.Difference(diff).Simplify(30)
+            mergedCatchmentGeom = mergedCatchmentGeom.Difference(diff).Simplify(30)
 
             #write out
-            self.geom_to_geojson(self.mergedCatchmentGeom, 'xxFinalBasinxx')
+            return mergedCatchmentGeom
 
         #otherwise, we can just return the split catchment
         else:
-            self.geom_to_geojson(self.splitCatchmentGeom, 'xxFinalBasinxx')
+            mergedCatchmentGeom = splitCatchment
 
-    def query_flowlines(self):
+        return mergedCatchmentGeom
+
+    def query_flowlines(self, x, y):
         """Determine if X,Y falls on NHD Plus v2 flowline (within a tolerance)"""
 
         #example url
@@ -215,7 +238,7 @@ class Watershed:
             'f': 'pjson', 
             'geometryType': 'esriGeometryPoint',
             'inSR':'4326',
-            'geometry': str(self.x) + ',' + str(self.y),
+            'geometry': str(x) + ',' + str(y),
             'distance': 100,
             'units': 'esriSRUnit_Meter',
             'outFields': 'GNIS_NAME,REACHCODE',
@@ -235,6 +258,8 @@ class Watershed:
     def split_catchment(self, bounds, x, y): 
         """Use catchment bounding box to clip NHD Plus v2 flow direction raster, and product split catchment delienation from X,Y"""
 
+        print('test bounds:', bounds)
+
         RasterFormat = 'GTiff'
         PixelRes = 30
 
@@ -252,7 +277,7 @@ class Watershed:
 
         #snap the pourpoint to 
         xy = (x, y)
-        new_xy = grid.snap_to_mask(grid.acc > 50, xy, return_dist=False)
+        new_xy = grid.snap_to_mask(grid.acc > 100, xy, return_dist=False)
 
         #get catchment with pysheds
         grid.catchment(data='dir', x=new_xy[0], y=new_xy[1], out_name='catch', recursionlimit=15000, xytype='label')
@@ -270,9 +295,6 @@ class Watershed:
         for shape in shapes:
             split_geom = split_geom.Union(ogr.CreateGeometryFromJson(json.dumps(shape[0])))
 
-        #write out shapefile
-        self.geom_to_geojson(split_geom, 'splitCatchment')
-            
         return split_geom
 
 if __name__=='__main__':

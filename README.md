@@ -36,5 +36,5 @@ Steps to start flask dev server:
 * start miniconda (start button, type 'mini' it should come up)  
 * type `conda activate delineate`
 * navigate to d:\applications\ss-delineate
-* type `set FLASK_APP=flask_app.py`
+* type `set FLASK_APP=app.py`
 * run flask app `flask run`

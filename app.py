@@ -12,7 +12,8 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS, cross_origin
 from datetime import datetime
-import delineate
+import nldi_delineate
+import time
 
 app = Flask(__name__)
 cors = CORS(app)
@@ -27,13 +28,17 @@ def home():
 @cross_origin(origin='*')
 def main():
 
-    region = request.args.get('region')
     lat = float(request.args.get('lat'))
     lng = float(request.args.get('lng'))
 
-    print(region,lat,lng)
-    dataPath = 'C:/NYBackup/GitHub/ss-delineate/data/'
+    print(lat,lng)
 
     #start main program
-    results = delineate.Watershed(lat,lng,region,dataPath)
+    timeBefore = time.perf_counter()  
+
+    results = nldi_delineate.Watershed(lng,lat)
+    
+    timeAfter = time.perf_counter() 
+    totalTime = timeAfter - timeBefore
+    print("Total Time:",totalTime)
     return jsonify(results.serialize())

@@ -42,7 +42,7 @@
 
 <script>
 var map;
-var point, border, splitCatchment, adjointCatchment, mergedCatchment;
+var point, border, catchment, splitCatchment, upstreamBasin, mergedCatchment;
 var features;
 var layerControl;
 var streamGridLayer;
@@ -88,12 +88,12 @@ $(document).ready(function () {
     map.on('zoomend', changeCursor );
 
     //click listener for delineation start
-    map.on('click', validatePoint)         
+    map.on('click', delineatePoint)         
 
 });
 
 function changeCursor() {
-    if (map.getZoom() >= 15) {
+    if (map.getZoom() >= 4) {
         console.log('ready to delineate')    
         document.body.classList.add('delineate');
     }
@@ -138,13 +138,17 @@ function delineatePoint(e) {
         layerControl.removeLayer(point);
         map.removeLayer(point)
     }
+    if (catchment) {
+        layerControl.removeLayer(catchment);
+        map.removeLayer(catchment)
+    }
     if (splitCatchment) {
         layerControl.removeLayer(splitCatchment);
         map.removeLayer(splitCatchment)
     }
-    if (adjointCatchment) {
-        layerControl.removeLayer(adjointCatchment);
-        map.removeLayer(adjointCatchment)
+    if (upstreamBasin) {
+        layerControl.removeLayer(upstreamBasin);
+        map.removeLayer(upstreamBasin)
     }
     if (mergedCatchment) {
         layerControl.removeLayer(mergedCatchment);
@@ -152,13 +156,11 @@ function delineatePoint(e) {
     }
 
     var data = {
-        region: region,
         lat: e.latlng.lat,
         lng: e.latlng.lng
     }
     
     // var data = {
-    //     region: 'ny',
     //     lat: 44.00431,
     //     lng: -73.71348
     // }
@@ -171,16 +173,16 @@ function delineatePoint(e) {
         dataType: 'json', // added data type
         data: data,
         success: function (res) {   // success callback function
-            //console.log('response:',res)
+            console.log('response:',res)
 
             toastr.clear(loadingToast);
             var endTime = performance.now();
             var totalTime = (endTime - startTime)/1000;
             toastr.info('It took ' + totalTime.toFixed(2) + ' seconds.'); 
 
-            if (res.splitCatchment) {
+            if (res.catchment) {
                 //console.log('has split Catchment', res.splitCatchment)
-                splitCatchment = L.geoJson(res.splitCatchment, { style: function(feature) {
+                catchment = L.geoJson(res.catchment, { style: function(feature) {
                     return {
                         fillColor: 'yellow',
                         weight: 2,
@@ -189,14 +191,30 @@ function delineatePoint(e) {
                         fillOpacity: 0.7         
                     }    
                 }}).addTo(map);
+                catchment.addTo(features)
+                layerControl.addOverlay(catchment , "Catchment");
+
+            }
+
+            if (res.splitCatchment) {
+                //console.log('has split Catchment', res.splitCatchment)
+                splitCatchment = L.geoJson(res.splitCatchment, { style: function(feature) {
+                    return {
+                        fillColor: 'green',
+                        weight: 2,
+                        opacity: 1,
+                        color: 'green',  //Outline color
+                        fillOpacity: 0.7         
+                    }    
+                }}).addTo(map);
                 splitCatchment.addTo(features)
                 layerControl.addOverlay(splitCatchment , "Split Catchment");
 
             }
 
-            if (res.adjointCatchment) {
+            if (res.upstreamBasin) {
                 //console.log('has adjoint Catchment', res.adjointCatchment)
-                adjointCatchment = L.geoJson(res.adjointCatchment, { style: function(feature) {
+                upstreamBasin = L.geoJson(res.upstreamBasin, { style: function(feature) {
                     return {
                         fillColor: 'red',
                         weight: 2,
@@ -205,8 +223,8 @@ function delineatePoint(e) {
                         fillOpacity: 0.7         
                     }    
                 }}).addTo(map);
-                adjointCatchment.addTo(features)
-                layerControl.addOverlay(adjointCatchment , "Adjoint Catchment");
+                upstreamBasin.addTo(features)
+                layerControl.addOverlay(upstreamBasin , "Upstream Basin");
                 
             }
 
