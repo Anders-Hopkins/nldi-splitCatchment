@@ -9,7 +9,7 @@ conda config --add channels conda-forge
 conda create -n delineate python=3.7 gdal pysheds
 ```
 
-## Get dependecies
+#### Get dependecies
 Clone repo
 ```
 git clone https://github.com/marsmith/nldi-splitCatchment
