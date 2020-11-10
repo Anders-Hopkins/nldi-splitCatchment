@@ -206,14 +206,12 @@ class Watershed:
         #if point is on a flowline we have an upstream basin and need to do some geometry merging
         if self.query_flowlines(self.x,self.y):
 
-            #create new cloned geom
-            mergedCatchmentGeom = upstreamBasin.Clone()
-
-            #subtract splitCatchment geom from full catchment geom
-            diff = catchment.Difference(splitCatchment.Buffer(10).Buffer(-10))
+            mergedCatchmentGeom = upstreamBasin
+            diff = catchment.Union(splitCatchment)
 
             #subtract splitCatchment geom from upstream basin geometry
-            mergedCatchmentGeom = mergedCatchmentGeom.Difference(diff).Simplify(30)
+            mergedCatchmentGeom = mergedCatchmentGeom.Difference(diff).Simplify(50)
+            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment.Simplify(50)).Simplify(50)
 
             #write out
             return mergedCatchmentGeom
