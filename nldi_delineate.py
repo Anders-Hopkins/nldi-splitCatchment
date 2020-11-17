@@ -25,8 +25,8 @@ os.environ['OGR_WKT_PRECISION'] = '2'
 NLDI_URL = 'https://labs.waterdata.usgs.gov/api/nldi/linked-data/comid/'
 NLDI_GEOSERVER_URL = 'https://labs.waterdata.usgs.gov/geoserver/wmadata/ows'
 NHDPLUS_FLOWLINES_QUERY_URL = 'https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query'
-OUT_PATH = 'C:/NYBackup/GitHub/nldi-splitCatchment/data/'
-IN_FDR = 'C:/NYBackup/GitHub/nldi-splitCatchment/data/nhdplus/NHDPlusMA/NHDPlus02/NHDPlusFdrFac02b/fdr'
+OUT_PATH = 'C:/Users/ahopkins/nldi/nldi-splitCatchment/data/'
+IN_FDR = OUT_PATH + 'NHDPlusV21_MA_02_02b_FdrFac_01/NHDPlusMA/NHDPlus02/NHDPlusFdrFac02b/fdr'
 OUT_FDR = '/vsimem/fdr.tif'
 
 class Watershed:
@@ -128,12 +128,16 @@ class Watershed:
         self.splitCatchmentGeom = self.split_catchment([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
         self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
         self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
-
+        
         #outputs
         self.catchment = self.geom_to_geojson(self.catchmentGeom, 'catchment')
         self.splitCatchment = self.geom_to_geojson(self.splitCatchmentGeom, 'splitCatchment')
         self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
         self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
+        self.mergedCatchment = {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': self.mergedCatchment['geometry']['coordinates'][0]}}
+
+        print('Merged Geom: ' , self.mergedCatchment, type(self.mergedCatchment))
+        #['geometry']['coordinates'][0]
 
     def transform_click_point(self, x, y):
         """Transform (reproject) assumed WGS84 coordinates to input raster coordinates"""
@@ -189,6 +193,7 @@ class Watershed:
         
         #request upstream basin from NLDI using comid of catchment point is in
         r = requests.get(NLDI_URL + catchmentIdentifier + '/basin', params=payload)
+        print('upstream url', r.url)
 
         #print('upstream basin', r.text)
         resp = r.json()
@@ -210,8 +215,8 @@ class Watershed:
             diff = catchment.Union(splitCatchment)
 
             #subtract splitCatchment geom from upstream basin geometry
-            mergedCatchmentGeom = mergedCatchmentGeom.Difference(diff).Simplify(50)
-            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment.Simplify(50)).Simplify(50)
+            mergedCatchmentGeom = mergedCatchmentGeom.Difference(catchment)
+            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment).Simplify(50)
 
             #write out
             return mergedCatchmentGeom
@@ -271,7 +276,7 @@ class Watershed:
         dirmap = (64,  128,  1,   2,    4,   8,    16,  32)
         grid.accumulation(data='dir', dirmap=dirmap, out_name='acc', apply_mask=False)
 
-        grid.to_raster('acc', 'C:/NYBackup/GitHub/ss-delineate/data/acc.tif', view=False, blockxsize=16, blockysize=16)
+        grid.to_raster('acc', OUT_PATH + 'acc.tif', view=False, blockxsize=16, blockysize=16)
 
         #snap the pourpoint to 
         xy = (x, y)
