@@ -128,12 +128,16 @@ class Watershed:
         self.splitCatchmentGeom = self.split_catchment([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
         self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
         self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
-
+        
         #outputs
         self.catchment = self.geom_to_geojson(self.catchmentGeom, 'catchment')
         self.splitCatchment = self.geom_to_geojson(self.splitCatchmentGeom, 'splitCatchment')
         self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
         self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
+        self.mergedCatchment = {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': self.mergedCatchment['geometry']['coordinates'][0]}}
+
+        print('Merged Geom: ' , self.mergedCatchment, type(self.mergedCatchment))
+        #['geometry']['coordinates'][0]
 
     def transform_click_point(self, x, y):
         """Transform (reproject) assumed WGS84 coordinates to input raster coordinates"""
@@ -189,6 +193,7 @@ class Watershed:
         
         #request upstream basin from NLDI using comid of catchment point is in
         r = requests.get(NLDI_URL + catchmentIdentifier + '/basin', params=payload)
+        print('upstream url', r.url)
 
         #print('upstream basin', r.text)
         resp = r.json()
@@ -210,8 +215,8 @@ class Watershed:
             diff = catchment.Union(splitCatchment)
 
             #subtract splitCatchment geom from upstream basin geometry
-            mergedCatchmentGeom = mergedCatchmentGeom.Difference(diff).Simplify(50)
-            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment.Simplify(50)).Simplify(50)
+            mergedCatchmentGeom = mergedCatchmentGeom.Difference(catchment)
+            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment).Simplify(50)
 
             #write out
             return mergedCatchmentGeom
