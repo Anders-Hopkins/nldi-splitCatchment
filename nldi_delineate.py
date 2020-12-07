@@ -126,15 +126,15 @@ class Watershed:
         self.catchmentIdentifier, self.catchmentGeom = self.get_local_catchment(self.x,self.y)
         minX, maxX, minY, maxY = self.catchmentGeom.GetEnvelope()
         self.splitCatchmentGeom = self.split_catchment([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
-        # self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
-        # self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
+        self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
+        self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
         
         #outputs
         self.catchment = self.geom_to_geojson(self.catchmentGeom, 'catchment')
         self.splitCatchment = self.geom_to_geojson(self.splitCatchmentGeom, 'splitCatchment')
-        # self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
-        # self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
-        # self.mergedCatchment = {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': self.mergedCatchment['geometry']['coordinates'][0]}}
+        self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
+        self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
+        self.mergedCatchment = {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': self.mergedCatchment['geometry']['coordinates'][0]}}
 
     def transform_click_point(self, x, y):
         """Transform (reproject) assumed WGS84 coordinates to input raster coordinates"""
@@ -182,78 +182,78 @@ class Watershed:
 
         return catchmentIdentifier, catchmentGeom
 
-    # def get_upstream_basin(self, catchmentIdentifier):
-    #     """Use local catchment identifier to get upstream basin geometry from NLDI"""
+    def get_upstream_basin(self, catchmentIdentifier):
+        """Use local catchment identifier to get upstream basin geometry from NLDI"""
 
-    #     #request upstream basin
-    #     payload = {'f': 'json', 'simplified': 'false'}
+        #request upstream basin
+        payload = {'f': 'json', 'simplified': 'false'}
         
-    #     #request upstream basin from NLDI using comid of catchment point is in
-    #     r = requests.get(NLDI_URL + catchmentIdentifier + '/basin', params=payload)
-    #     print('upstream url', r.url)
+        #request upstream basin from NLDI using comid of catchment point is in
+        r = requests.get(NLDI_URL + catchmentIdentifier + '/basin', params=payload)
+        print('upstream url', r.url)
 
-    #     #print('upstream basin', r.text)
-    #     resp = r.json()
+        #print('upstream basin', r.text)
+        resp = r.json()
 
-    #     #convert geojson to ogr geom
-    #     gj_geom = json.dumps(resp['features'][0]['geometry'])
-    #     upstreamBasinGeom = ogr.CreateGeometryFromJson(gj_geom)
-    #     upstreamBasinGeom.Transform(self.transformToRaster)
+        #convert geojson to ogr geom
+        gj_geom = json.dumps(resp['features'][0]['geometry'])
+        upstreamBasinGeom = ogr.CreateGeometryFromJson(gj_geom)
+        upstreamBasinGeom.Transform(self.transformToRaster)
 
-    #     return upstreamBasinGeom
+        return upstreamBasinGeom
 
-    # def mergeGeoms(self, catchment, splitCatchment, upstreamBasin):
-    #     """Attempt at merging geometries"""
+    def mergeGeoms(self, catchment, splitCatchment, upstreamBasin):
+        """Attempt at merging geometries"""
 
-    #     #if point is on a flowline we have an upstream basin and need to do some geometry merging
-    #     if self.query_flowlines(self.x,self.y):
+        #if point is on a flowline we have an upstream basin and need to do some geometry merging
+        if self.query_flowlines(self.x,self.y):
 
-    #         mergedCatchmentGeom = upstreamBasin
-    #         diff = catchment.Union(splitCatchment)
+            mergedCatchmentGeom = upstreamBasin
+            diff = catchment.Union(splitCatchment)
 
-    #         #subtract splitCatchment geom from upstream basin geometry
-    #         mergedCatchmentGeom = mergedCatchmentGeom.Difference(catchment)
-    #         mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment).Simplify(50)
+            #subtract splitCatchment geom from upstream basin geometry
+            mergedCatchmentGeom = mergedCatchmentGeom.Difference(catchment)
+            mergedCatchmentGeom = mergedCatchmentGeom.Union(splitCatchment).Simplify(50)
 
-    #         #write out
-    #         return mergedCatchmentGeom
+            #write out
+            return mergedCatchmentGeom
 
-    #     #otherwise, we can just return the split catchment
-    #     else:
-    #         mergedCatchmentGeom = splitCatchment
+        #otherwise, we can just return the split catchment
+        else:
+            mergedCatchmentGeom = splitCatchment
 
-    #     return mergedCatchmentGeom
+        return mergedCatchmentGeom
 
-    # def query_flowlines(self, x, y):
-    #     """Determine if X,Y falls on NHD Plus v2 flowline (within a tolerance)"""
+    def query_flowlines(self, x, y):
+        """Determine if X,Y falls on NHD Plus v2 flowline (within a tolerance)"""
 
-    #     #example url
-    #     #"https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query?geometry=-73.82705,43.29139&outFields=GNIS_NAME%2CREACHCODE&geometryType=esriGeometryPoint&inSR=4326&distance=100&units=esriSRUnit_Meter&returnGeometry=false&f=pjson", 
+        #example url
+        #"https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/6/query?geometry=-73.82705,43.29139&outFields=GNIS_NAME%2CREACHCODE&geometryType=esriGeometryPoint&inSR=4326&distance=100&units=esriSRUnit_Meter&returnGeometry=false&f=pjson", 
 
-    #     #perhaps look at this code to snap input point to closest point along a line
-    #     #https://github.com/marsmith/ADONNIS/blob/c54322eaeee17a415b7971c4f5ad714d3d3dccea/js/main.js#L421-L551
+        #perhaps look at this code to snap input point to closest point along a line
+        #https://github.com/marsmith/ADONNIS/blob/c54322eaeee17a415b7971c4f5ad714d3d3dccea/js/main.js#L421-L551
 
-    #     #request upstream basin
-    #     payload = {
-    #         'f': 'pjson', 
-    #         'geometryType': 'esriGeometryPoint',
-    #         'inSR':'4326',
-    #         'geometry': str(x) + ',' + str(y),
-    #         'distance': 100,
-    #         'units': 'esriSRUnit_Meter',
-    #         'outFields': 'GNIS_NAME,REACHCODE',
-    #         'returnGeometry': 'false'
-    #     }
+        #request upstream basin
+        payload = {
+            'f': 'pjson', 
+            'geometryType': 'esriGeometryPoint',
+            'inSR':'4326',
+            'geometry': str(x) + ',' + str(y),
+            'distance': 100,
+            'units': 'esriSRUnit_Meter',
+            'outFields': 'GNIS_NAME,REACHCODE',
+            'returnGeometry': 'false'
+        }
         
-    #     # #request upstream basin from NLDI using comid of catchment point is in
-    #     #r = requests.get(NHDPLUS_FLOWLINES_QUERY_URL, params=payload)
+        # #request upstream basin from NLDI using comid of catchment point is in
+        #r = requests.get(NHDPLUS_FLOWLINES_QUERY_URL, params=payload)
 
-    #     #print('nhd flowline query:', r.url)
+        #print('nhd flowline query:', r.url)
 
-    #     #print('response', r.text)
-    #     # resp = r.json()
+        #print('response', r.text)
+        # resp = r.json()
 
-    #     return True
+        return True
 
     def split_catchment(self, bounds, x, y): 
         """Use catchment bounding box to clip NHD Plus v2 flow direction raster, and product split catchment delienation from X,Y"""
@@ -297,16 +297,16 @@ class Watershed:
 
         return split_geom
 
-# if __name__=='__main__':
+if __name__=='__main__':
 
-#     timeBefore = time.perf_counter()  
+    timeBefore = time.perf_counter()  
 
-#     #test site
-#     point = (-73.82705, 43.29139)
+    #test site
+    point = (-73.82705, 43.29139)
 
-#     #start main program
-#     delineation = Watershed(point[0],point[1])
+    #start main program
+    delineation = Watershed(point[0],point[1])
 
-#     timeAfter = time.perf_counter() 
-#     totalTime = timeAfter - timeBefore
-#     print("Total Time:",totalTime)
+    timeAfter = time.perf_counter() 
+    totalTime = timeAfter - timeBefore
+    print("Total Time:",totalTime)
