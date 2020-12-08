@@ -15,6 +15,9 @@
 
 from osgeo import ogr, osr, gdal
 from pysheds.grid import Grid
+import pyflwdir
+import rasterio
+import numpy as np
 import requests
 import time
 import json
@@ -45,13 +48,15 @@ class Watershed:
         self.catchmentGeom = None
         self.splitCatchmentGeom = None
         self.upstreamBasinGeom = None
-        self.mergedCatchmentGeom = None    
+        self.mergedCatchmentGeom = None   
+        self.downstreamPathGeom = None 
 
         #outputs
         self.catchment = None
         self.splitCatchment = None
         self.upstreamBasin = None
         self.mergedCatchment = None
+        self.downstreamPath = None
 
         #input point spatial reference
         self.sourceprj = osr.SpatialReference()
@@ -76,7 +81,8 @@ class Watershed:
             'catchment': self.catchment,
             'splitCatchment': self.splitCatchment, 
             'upstreamBasin': self.upstreamBasin,
-            'mergedCatchment': self.mergedCatchment
+            'mergedCatchment': self.mergedCatchment,
+            'downstreamPath': self.downstreamPath
         }
 
 ## helper functions
@@ -128,6 +134,7 @@ class Watershed:
         self.splitCatchmentGeom = self.split_catchment([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
         self.upstreamBasinGeom = self.get_upstream_basin(self.catchmentIdentifier)
         self.mergedCatchmentGeom = self.mergeGeoms(self.catchmentGeom, self.splitCatchmentGeom, self.upstreamBasinGeom)
+        self.downstreamPathGeom = self.get_downstreamPath([minX, minY, maxX, maxY], self.projectedLng,self.projectedLat)
         
         #outputs
         self.catchment = self.geom_to_geojson(self.catchmentGeom, 'catchment')
@@ -135,6 +142,7 @@ class Watershed:
         self.upstreamBasin = self.geom_to_geojson(self.upstreamBasinGeom, 'upstreamBasin')
         self.mergedCatchment = self.geom_to_geojson(self.mergedCatchmentGeom, 'mergedCatchment')
         self.mergedCatchment = {'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': self.mergedCatchment['geometry']['coordinates'][0]}}
+        self.downstreamPath = self.geom_to_geojson(self.downstreamPathGeom, 'downstreamPath')
 
     def transform_click_point(self, x, y):
         """Transform (reproject) assumed WGS84 coordinates to input raster coordinates"""
@@ -296,6 +304,40 @@ class Watershed:
             split_geom = split_geom.Union(ogr.CreateGeometryFromJson(json.dumps(shape[0]))).Simplify(30)
 
         return split_geom
+
+    def get_downstreamPath(self, bounds, x, y):
+        """Use catchment bounding box to clip NHD Plus v2 flow direction raster, and trace a flowpath from X,Y"""
+
+        print('downstreamPath test bounds:', bounds)
+
+        RasterFormat = 'GTiff'
+        PixelRes = 30
+
+        #method to use catchment bounding box instead of exact geom
+        gdal.Warp(OUT_FDR, IN_FDR, format=RasterFormat, outputBounds=bounds, xRes=PixelRes, yRes=PixelRes, dstSRS=self.Projection, resampleAlg=gdal.GRA_NearestNeighbour, options=['COMPRESS=DEFLATE'])
+
+        with rasterio.open(OUT_FDR, 'r') as src:
+            flwdir = src.read(1)
+            transform = src.transform
+            latlon = src.crs.to_epsg() == 4326
+
+        flw = pyflwdir.from_array(flwdir, ftype='d8', transform=transform, latlon=latlon)
+
+        path, dist = flw.path(xy=([x], [y]))
+        print('downstream path:',type(path), path)
+
+        mask = np.zeros(flw.shape, dtype=np.bool)
+        for i, p in enumerate(path):
+            mask.flat[p] = 1
+        
+        gdf_paths = flw.vectorize(mask=mask)
+        print('gdf_paths', type(gdf_paths))
+
+        downstreamPath = gdf_paths.to_json()
+        downstreamPath = ogr.CreateGeometryFromJson(json.dumps(downstreamPath))
+        print('path.geojson', type(downstreamPath), downstreamPath)
+
+        return downstreamPath
 
 if __name__=='__main__':
 
