@@ -18,6 +18,8 @@ from pysheds.grid import Grid
 import pyflwdir
 import rasterio
 import numpy as np
+import geopandas
+from shapely.ops import unary_union
 import requests
 import time
 import json
@@ -88,7 +90,7 @@ class Watershed:
 ## helper functions
     def geom_to_geojson(self, geom, name, simplify_tolerance=10, write_output=False):
         """Return a geojson from an OGR geom object"""
-
+        
         #get area in local units
         area = geom.GetArea()
         print(name + ' area: ' + str(area*0.00000038610) + ' square miles')
@@ -105,7 +107,7 @@ class Watershed:
 
         #add some attributes
         geom_json = json.loads(json_text)
-
+        
         #get area in local units
         area = geom.GetArea()
 
@@ -324,18 +326,20 @@ class Watershed:
         flw = pyflwdir.from_array(flwdir, ftype='d8', transform=transform, latlon=latlon)
 
         path, dist = flw.path(xy=([x], [y]))
-        print('downstream path:',type(path), path)
 
         mask = np.zeros(flw.shape, dtype=np.bool)
         for i, p in enumerate(path):
             mask.flat[p] = 1
         
         gdf_paths = flw.vectorize(mask=mask)
-        print('gdf_paths', type(gdf_paths))
+        
+        u = unary_union(gdf_paths.geometry)
+        x = geopandas.GeoSeries([u]).__geo_interface__
+        y = x['features'][0]['geometry']
+        dsp_geom = json.dumps(y)
+        downstreamPath = ogr.CreateGeometryFromJson(dsp_geom)
 
-        downstreamPath = gdf_paths.to_json()
-        downstreamPath = ogr.CreateGeometryFromJson(json.dumps(downstreamPath))
-        print('path.geojson', type(downstreamPath), downstreamPath)
+        #print('path.geojson', type(downstreamPath), downstreamPath)
 
         return downstreamPath
 
